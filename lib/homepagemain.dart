@@ -19,7 +19,7 @@ class _HomePageMainScreenState extends State<HomePageMainScreen> {
   String userName = '';
   double totalIncome = 0.0;
   double totalExpense = 0.0;
-  double todayExpense = 0.0; // 🔥 Tambahkan variabel ini
+  double todayExpense = 0.0;
 
   late String _greeting;
   late String _timeAsset;
@@ -364,7 +364,7 @@ class _HomePageMainScreenState extends State<HomePageMainScreen> {
                       const SizedBox(height: 6),
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(30),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(12),
@@ -379,15 +379,13 @@ class _HomePageMainScreenState extends State<HomePageMainScreen> {
                               : Column(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              SizedBox(
-                                height: 160,
-                                width: 160,
-                                child: CustomPaint(
-                                  painter: PieChartPainter(
-                                    categories: expensesByCategoryToday.take(3).toList(),
-                                  ),
-                                ),
-                              ),
+                            SizedBox(
+                            height: 180, // Tingkatkan height untuk menampung teks
+                            width: 180,
+                            child: CustomPaint(
+                              painter: PieChartPainter(categories: expensesByCategoryToday.take(3).toList()),
+                            ),
+                          ),
                               const SizedBox(height: 16),
                               Wrap(
                                 spacing: 16,
@@ -466,36 +464,21 @@ class _HomePageMainScreenState extends State<HomePageMainScreen> {
       );
     }
 
-    String formatShortCurrency(num amount) {
-      if (amount >= 1000000000) {
-        return 'Rp ${(amount / 1000000000).toStringAsFixed(1)} M';
-      } else if (amount >= 1000000) {
-        return 'Rp ${(amount / 1000000).toStringAsFixed(1)} jt';
-      } else if (amount >= 1000) {
-        return 'Rp ${(amount / 1000).toStringAsFixed(1)} rb';
-      } else {
-        return 'Rp $amount';
-      }
-    }
-
     final Map<String, double> categoryTotals = {};
     final List<Color> colors = [Colors.purple, Colors.orange, Colors.green];
-
     for (var expense in expensesByCategory) {
       final category = expense['category'] ?? 'Unknown';
       final amount = (expense['amount'] ?? 0.0).toDouble();
       categoryTotals[category] = (categoryTotals[category] ?? 0.0) + amount;
     }
 
-    final List<PieChartSectionData> sections = categoryTotals.entries
-        .map((entry) {
+    final List<PieChartSectionData> sections = categoryTotals.entries.map((entry) {
       final percentage = (entry.value / totalExpense) * 100;
       final index = categoryTotals.keys.toList().indexOf(entry.key);
       return PieChartSectionData(
         value: entry.value,
         color: colors[index % colors.length],
-        title:
-        '${percentage.toStringAsFixed(1)}%\n${formatShortCurrency(entry.value)}',
+        title: '${percentage.toStringAsFixed(1)}%',
         titleStyle: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.bold,
@@ -503,6 +486,30 @@ class _HomePageMainScreenState extends State<HomePageMainScreen> {
         ),
       );
     }).toList();
+
+    // Fungsi lokal untuk build detail per kategori
+    Widget _buildCategoryDetails(String category) {
+      final List<Map<String, dynamic>> categoryTransactions =
+      expensesByCategory.where((item) => item['category'] == category).toList();
+
+      if (categoryTransactions.isEmpty) return SizedBox.shrink();
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$category: ', style: TextStyle(fontWeight: FontWeight.bold)),
+            Wrap(
+              spacing: 8,
+              children: categoryTransactions.map((t) {
+                return Text('Rp ${formatCurrency(t['amount'])}', style: TextStyle(fontSize: 12));
+              }).toList(),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -533,6 +540,19 @@ class _HomePageMainScreenState extends State<HomePageMainScreen> {
               return _buildLegendItem(category, colors[index % colors.length]);
             }).toList(),
           ),
+          const SizedBox(height: 16),
+          if (expensesByCategory.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Detail Expense by Category:',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red,
+                  ),
+                ),
+                ...categoryTotals.keys.map((category) => _buildCategoryDetails(category)),
+              ],
+            )
         ],
       ),
     );

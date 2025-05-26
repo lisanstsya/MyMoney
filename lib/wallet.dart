@@ -5,14 +5,14 @@ import 'package:intl/intl.dart'; // Untuk format mata uang
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:convert';
 
+List<Map<String, dynamic>> transactionHistory = [];
+
 class MyWalletPage extends StatefulWidget {
   const MyWalletPage({super.key});
 
   @override
   State<MyWalletPage> createState() => _MyWalletPageState();
 }
-
-List<Map<String, dynamic>> transactionHistory = [];
 
 class _MyWalletPageState extends State<MyWalletPage> {
   final Color yellowColor = const Color(0xFFEFC319);
@@ -25,6 +25,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
   final TextEditingController incomeAmountController = TextEditingController();
   final TextEditingController incomeCategoryController = TextEditingController();
   final TextEditingController incomeDescriptionController = TextEditingController();
+
   final TextEditingController expenseAmountController = TextEditingController();
   final TextEditingController expenseCategoryController = TextEditingController();
   final TextEditingController expenseDescriptionController = TextEditingController();
@@ -43,6 +44,31 @@ class _MyWalletPageState extends State<MyWalletPage> {
   void initState() {
     super.initState();
     _loadUserIdAndData();
+  }
+
+  Widget _buildCategoryDetails(String category, List<Map<String, dynamic>> transactions) {
+    final categoryTransactions = transactions.where((t) => t['category'] == category).toList();
+
+    if (categoryTransactions.isEmpty) {
+      return SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$category: ', style: TextStyle(fontWeight: FontWeight.bold)),
+          Wrap(
+            spacing: 6,
+            children: categoryTransactions.map((t) {
+              String amount = formatCurrency(t['amount']);
+              return Text('Rp $amount', style: TextStyle(fontSize: 12));
+            }).toList(),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadUserIdAndData() async {
@@ -175,21 +201,21 @@ class _MyWalletPageState extends State<MyWalletPage> {
       _showSnackBar("User not logged in", redColor);
       return;
     }
-    if (incomeAmountController.text.isEmpty) return;
+
+    // Validasi: Harus isi amount dan category
+    if (incomeAmountController.text.isEmpty || incomeCategoryController.text.isEmpty) {
+      _showSnackBar('Please enter both amount and category', redColor);
+      return;
+    }
+
     double? amount = double.tryParse(incomeAmountController.text);
     if (amount == null || amount <= 0) {
       _showSnackBar('Please enter a valid amount', redColor);
       return;
     }
 
-    String category = incomeCategoryController.text.isNotEmpty
-        ? incomeCategoryController.text
-        : 'Other';
+    String category = incomeCategoryController.text;
 
-    // Optional: ambil deskripsi tapi tidak disimpan
-    String description = incomeDescriptionController.text;
-
-    // Tambahkan ke history (tanpa description)
     setState(() {
       transactionHistory.add({
         'type': 'income',
@@ -199,12 +225,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
       });
     });
 
-    // Submit ke server (tanpa description)
-    submitIncome(
-      amount: amount,
-      category: category,
-    );
-
+    submitIncome(amount: amount, category: category);
     clearIncomeForm();
     setState(() {
       showIncomeForm = false;
@@ -216,19 +237,20 @@ class _MyWalletPageState extends State<MyWalletPage> {
       _showSnackBar("User not logged in", redColor);
       return;
     }
-    if (expenseAmountController.text.isEmpty) return;
+
+    // Validasi: Harus isi amount dan category
+    if (expenseAmountController.text.isEmpty || expenseCategoryController.text.isEmpty) {
+      _showSnackBar('Please enter both amount and category', redColor);
+      return;
+    }
+
     double? amount = double.tryParse(expenseAmountController.text);
     if (amount == null || amount <= 0) {
       _showSnackBar('Please enter a valid amount', redColor);
       return;
     }
 
-    String category = expenseCategoryController.text.isNotEmpty
-        ? expenseCategoryController.text
-        : 'Other';
-
-    // Optional: ambil deskripsi tapi tidak disimpan
-    String description = expenseDescriptionController.text;
+    String category = expenseCategoryController.text;
 
     setState(() {
       transactionHistory.add({
@@ -239,24 +261,37 @@ class _MyWalletPageState extends State<MyWalletPage> {
       });
     });
 
-    submitExpense(
-      amount: amount,
-      category: category,
-    );
-
+    submitExpense(amount: amount, category: category);
     clearExpenseForm();
     setState(() {
       showExpenseForm = false;
     });
   }
 
-  void _showDetailSnackBar(String title, List<String> details, Color bgColor) {
+  void _showDetailSnackBar(String title, List<Map<String, dynamic>> details, Color bgColor) {
     final message = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ...details.map((text) => Text(text)),
+        ...details.map((item) {
+          String type = item['type'] == 'income' ? "Income" : "Expense";
+          Color typeColor = item['type'] == 'income' ? greenColor : redColor;
+          double amount = item['amount'];
+          String formattedAmount = formatCurrency(amount);
+
+          return Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                color: typeColor,
+                margin: EdgeInsets.only(right: 8),
+              ),
+              Text('$type - Rp $formattedAmount'),
+            ],
+          );
+        }),
       ],
     );
 
@@ -271,7 +306,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
 
   Future<void> submitIncome({
     required double amount,
-    required String category
+    required String category,
   }) async {
     try {
       final response = await http.post(
@@ -284,7 +319,11 @@ class _MyWalletPageState extends State<MyWalletPage> {
         }),
       );
       if (response.statusCode == 201) {
-        _showSnackBar('Income successfully added', greenColor);
+        _showDetailSnackBar(
+          'Income Added',
+          [{'type': 'income', 'category': category, 'amount': amount}],
+          greenColor,
+        );
         await loadInitialData();
         await fetchIncomesByCategory();
         clearIncomeForm();
@@ -311,7 +350,11 @@ class _MyWalletPageState extends State<MyWalletPage> {
         }),
       );
       if (response.statusCode == 201) {
-        _showSnackBar('Expense successfully added', greenColor);
+        _showDetailSnackBar(
+          'Expense Added',
+          [{'type': 'expense', 'category': category, 'amount': amount}],
+          redColor,
+        );
         await loadInitialData();
         await fetchExpensesByCategory();
         clearExpenseForm();
@@ -348,12 +391,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-          )
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,7 +472,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
           SizedBox(height: 16),
           Center(
             child: SizedBox(
-              width: double.infinity, // untuk full lebar parent
+              width: double.infinity,
               child: ElevatedButton(
                 onPressed: _addIncome,
                 style: ElevatedButton.styleFrom(
@@ -442,10 +480,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
                   padding: EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(25),
-                    side: BorderSide(
-                      color: Colors.black, // garis hitam di luar button
-                      width: 2,
-                    ),
+                    side: BorderSide(color: Colors.black, width: 2),
                   ),
                 ),
                 child: Text(
@@ -549,7 +584,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
           SizedBox(height: 16),
           Center(
             child: SizedBox(
-              width: double.infinity, // biar full lebar parent
+              width: double.infinity,
               child: ElevatedButton(
                 onPressed: _addExpense,
                 style: ElevatedButton.styleFrom(
@@ -616,10 +651,12 @@ class _MyWalletPageState extends State<MyWalletPage> {
         ),
       );
     }
+
     final Map<String, double> categoryTotals = {};
     final List<Color> colors = [Colors.purple, Colors.blue, Colors.green, Colors.orange, Colors.teal];
     String largestCategory = '';
     double largestAmount = 0;
+
     for (var expense in expenseList) {
       final category = expense['category'] ?? 'Unknown';
       final amount = (expense['amount'] ?? 0.0).toDouble();
@@ -629,13 +666,14 @@ class _MyWalletPageState extends State<MyWalletPage> {
         largestCategory = category;
       }
     }
+
     final List<PieChartSectionData> sections = categoryTotals.entries.map((entry) {
       final percentage = (entry.value / totalExpense) * 100;
       final index = categoryTotals.keys.toList().indexOf(entry.key);
       return PieChartSectionData(
         value: percentage,
         color: colors[index % colors.length],
-        title: '${percentage.toStringAsFixed(1)}%\n',
+        title: '${percentage.toStringAsFixed(1)}%',
         titleStyle: const TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.bold,
@@ -643,6 +681,31 @@ class _MyWalletPageState extends State<MyWalletPage> {
         ),
       );
     }).toList();
+
+    // Fungsi lokal untuk build detail per kategori
+    Widget _buildCategoryDetails(String category) {
+      final List<Map<String, dynamic>> categoryTransactions =
+      expenseList.where((item) => item['category'] == category).toList();
+
+      if (categoryTransactions.isEmpty) return SizedBox.shrink();
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$category: ', style: TextStyle(fontWeight: FontWeight.bold)),
+            Wrap(
+              spacing: 8,
+              children: categoryTransactions.map((t) {
+                return Text('Rp ${formatCurrency(t['amount'])}', style: TextStyle(fontSize: 12));
+              }).toList(),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -699,6 +762,18 @@ class _MyWalletPageState extends State<MyWalletPage> {
                 ),
               ],
             ),
+          const SizedBox(height: 16),
+          if (expenseList.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Detail Expense by Category:',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red),
+                ),
+                ...categoryTotals.keys.map((category) => _buildCategoryDetails(category)),
+              ],
+            )
         ],
       ),
     );
@@ -720,10 +795,12 @@ class _MyWalletPageState extends State<MyWalletPage> {
         ),
       );
     }
+
     final Map<String, double> categoryTotals = {};
     final List<Color> colors = [Colors.green, Colors.teal, Colors.blue, Colors.indigo];
     String largestCategory = '';
     double largestAmount = 0;
+
     for (var income in incomeList) {
       final category = income['category'] ?? 'Unknown';
       final amount = (income['amount'] ?? 0.0).toDouble();
@@ -733,13 +810,14 @@ class _MyWalletPageState extends State<MyWalletPage> {
         largestCategory = category;
       }
     }
+
     final List<PieChartSectionData> sections = categoryTotals.entries.map((entry) {
       final percentage = (entry.value / totalIncome) * 100;
       final index = categoryTotals.keys.toList().indexOf(entry.key);
       return PieChartSectionData(
         value: percentage,
         color: colors[index % colors.length],
-        title: '${percentage.toStringAsFixed(1)}%\n',
+        title: '${percentage.toStringAsFixed(1)}%',
         titleStyle: const TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,
@@ -747,6 +825,31 @@ class _MyWalletPageState extends State<MyWalletPage> {
         ),
       );
     }).toList();
+
+    // Fungsi lokal untuk build detail per kategori
+    Widget _buildCategoryDetails(String category) {
+      final List<Map<String, dynamic>> categoryTransactions =
+      incomeList.where((item) => item['category'] == category).toList();
+
+      if (categoryTransactions.isEmpty) return SizedBox.shrink();
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$category: ', style: TextStyle(fontWeight: FontWeight.bold)),
+            Wrap(
+              spacing: 8,
+              children: categoryTransactions.map((t) {
+                return Text('Rp ${formatCurrency(t['amount'])}', style: TextStyle(fontSize: 12));
+              }).toList(),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -803,6 +906,18 @@ class _MyWalletPageState extends State<MyWalletPage> {
                 ),
               ],
             ),
+          const SizedBox(height: 16),
+          if (incomeList.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Detail Income by Category:',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+                ...categoryTotals.keys.map((category) => _buildCategoryDetails(category)),
+              ],
+            )
         ],
       ),
     );
@@ -829,6 +944,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
       ),
     );
   }
+
 
   String formatCurrency(double amount) {
     final formatter = NumberFormat('#,##0', 'id_ID');
@@ -927,7 +1043,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
                               Text(
                                 'Add Income',
                                 style: TextStyle(
-                                  fontSize: 20, // ubah sesuai kebutuhan
+                                  fontSize: 20,
                                 ),
                               ),
                               SizedBox(width: 8),
@@ -961,7 +1077,8 @@ class _MyWalletPageState extends State<MyWalletPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Total Income', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: greenColor)),
+                                  Text('Total Income',
+                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: greenColor)),
                                   SizedBox(height: 8),
                                   Container(
                                     width: 180,
@@ -970,10 +1087,12 @@ class _MyWalletPageState extends State<MyWalletPage> {
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(20),
                                     ),
-                                    child: Text('Rp ${formatCurrency(totalIncome)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    child: Text('Rp ${formatCurrency(totalIncome)}',
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                   ),
                                   SizedBox(height: 16),
-                                  Text('Today Income', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: greenColor)),
+                                  Text('Today Income',
+                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: greenColor)),
                                   SizedBox(height: 8),
                                   Container(
                                     width: 180,
@@ -982,7 +1101,8 @@ class _MyWalletPageState extends State<MyWalletPage> {
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(20),
                                     ),
-                                    child: Text('Rp ${formatCurrency(todayIncome)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    child: Text('Rp ${formatCurrency(todayIncome)}',
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
@@ -1022,7 +1142,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
                               Text(
                                 'Add Expense',
                                 style: TextStyle(
-                                  fontSize: 20, // ubah sesuai kebutuhan
+                                  fontSize: 20,
                                 ),
                               ),
                               SizedBox(width: 8),
@@ -1056,7 +1176,8 @@ class _MyWalletPageState extends State<MyWalletPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Total Expense', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: redColor)),
+                                  Text('Total Expense',
+                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: redColor)),
                                   SizedBox(height: 8),
                                   Container(
                                     width: 180,
@@ -1065,10 +1186,12 @@ class _MyWalletPageState extends State<MyWalletPage> {
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(20),
                                     ),
-                                    child: Text('Rp ${formatCurrency(totalExpense)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    child: Text('Rp ${formatCurrency(totalExpense)}',
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                   ),
                                   SizedBox(height: 16),
-                                  Text('Today Expense', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: redColor)),
+                                  Text('Today Expense',
+                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: redColor)),
                                   SizedBox(height: 8),
                                   Container(
                                     width: 180,
@@ -1077,7 +1200,8 @@ class _MyWalletPageState extends State<MyWalletPage> {
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(20),
                                     ),
-                                    child: Text('Rp ${formatCurrency(todayExpense)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    child: Text('Rp ${formatCurrency(todayExpense)}',
+                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
@@ -1095,9 +1219,9 @@ class _MyWalletPageState extends State<MyWalletPage> {
                         ),
                       ),
                       SizedBox(height: 30),
-                      _buildIncomeChart(), // ← Menampilkan chart income
+                      _buildIncomeChart(),
                       SizedBox(height: 20),
-                      _buildExpenseChart(), // ← chart expense tetap ada
+                      _buildExpenseChart(),
                     ],
                   ),
                 ),
@@ -1122,4 +1246,3 @@ class _MyWalletPageState extends State<MyWalletPage> {
     );
   }
 }
-
