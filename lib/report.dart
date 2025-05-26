@@ -12,10 +12,8 @@ class IncomeEntry {
   IncomeEntry({required this.date, required this.amount});
 
   factory IncomeEntry.fromJson(Map<String, dynamic> json) {
-    // Handle semua tipe data JSON (int, double, String)
     var amountVal = json['amount'];
     double parsedAmount = 0.0;
-
     if (amountVal is int) {
       parsedAmount = amountVal.toDouble();
     } else if (amountVal is double) {
@@ -23,7 +21,6 @@ class IncomeEntry {
     } else if (amountVal is String) {
       parsedAmount = double.tryParse(amountVal) ?? 0.0;
     }
-
     return IncomeEntry(
       date: DateTime.parse(json['date']),
       amount: parsedAmount,
@@ -39,10 +36,8 @@ class ExpenseEntry {
   ExpenseEntry({required this.date, required this.amount, required this.category});
 
   factory ExpenseEntry.fromJson(Map<String, dynamic> json) {
-    // Handle semua tipe data JSON (int, double, String)
     var amountVal = json['amount'];
     double parsedAmount = 0.0;
-
     if (amountVal is int) {
       parsedAmount = amountVal.toDouble();
     } else if (amountVal is double) {
@@ -50,7 +45,6 @@ class ExpenseEntry {
     } else if (amountVal is String) {
       parsedAmount = double.tryParse(amountVal) ?? 0.0;
     }
-
     return ExpenseEntry(
       date: DateTime.parse(json['date']),
       amount: parsedAmount,
@@ -74,13 +68,13 @@ class _ReportPageState extends State<ReportPage> {
   final DateTime customStart = DateTime(2025, 1, 1);
   bool _isLoading = true;
   String? userId;
+
   final Color yellowColor = Color(0xFFEFC319);
   final Color greenColor = Color(0xFF058240);
   final Color redColor = Color(0xFFED4353);
 
-  // 🔹 Fungsi bantu untuk format mata uang
   String formatCurrency(double amount) {
-    final formatter = NumberFormat('#,##0', 'id_ID'); // Format dengan titik
+    final formatter = NumberFormat('#,##0', 'id_ID');
     return formatter.format(amount);
   }
 
@@ -133,13 +127,25 @@ class _ReportPageState extends State<ReportPage> {
     currentMonthOffset = now.month - customStart.month + (12 * (now.year - customStart.year));
   }
 
-  DateTime getCustomWeekStart(int offset) => customStart.add(Duration(days: offset * 7));
+  void updateMonth(int newMonthOffset) {
+    setState(() {
+      currentMonthOffset = newMonthOffset;
+      currentWeekOffset = 0;
+    });
+  }
 
+  DateTime getCustomWeekStart(int offset) => customStart.add(Duration(days: offset * 7));
   DateTime getCustomWeekEnd(int offset) => getCustomWeekStart(offset).add(const Duration(days: 6));
 
   List<double> getWeeklyData(List entries) {
     final start = getCustomWeekStart(currentWeekOffset);
     final end = getCustomWeekEnd(currentWeekOffset);
+    final now = DateTime.now();
+
+    if (start.isAfter(now)) {
+      return List.filled(7, 0);
+    }
+
     List<double> data = List.filled(7, 0);
     for (var entry in entries) {
       final date = entry.date;
@@ -185,9 +191,7 @@ class _ReportPageState extends State<ReportPage> {
   }
 
   double getTotal(List<double> data) => data.fold(0, (prev, curr) => prev + curr);
-
   double getMax(List<double> data) => data.fold(0, (max, val) => val > max ? val : max);
-
   int getMaxIndex(List<double> data) => data.isEmpty ? 0 : data.indexOf(getMax(data));
 
   Widget buildBarChart(List<double> values, Color color) {
@@ -288,30 +292,39 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
+  int getWeekInMonth(DateTime date, DateTime firstDayOfMonth) {
+    int dayOffset = (firstDayOfMonth.weekday - 1) % 7;
+    int adjustedDay = date.day + dayOffset;
+    return ((adjustedDay - 1) ~/ 7) + 1;
+  }
+
   @override
   void initState() {
     super.initState();
     _initOffsets();
-    _loadDataFromBackend(); // Load from backend instead of SharedPrefs
+    _loadDataFromBackend();
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final df = DateFormat('dd/MM/yyyy');
+
     final monthlyDate = DateTime(customStart.year, customStart.month + currentMonthOffset);
     final endOfMonth = DateTime(monthlyDate.year, monthlyDate.month + 1, 0);
     final displayMonthlyDate = endOfMonth.isBefore(now) ? df.format(endOfMonth) : df.format(now);
+
     final weeklyStart = getCustomWeekStart(currentWeekOffset);
     final weeklyEnd = getCustomWeekEnd(currentWeekOffset);
     final displayWeeklyDate = weeklyEnd.isBefore(now) ? df.format(weeklyEnd) : df.format(now);
+
     final weeklyIncomeData = getWeeklyData(_incomeEntries);
     final monthlyIncomeData = getMonthlyData(_incomeEntries);
     final weeklyExpenseData = getWeeklyData(_expenseEntries);
     final monthlyExpenseData = getMonthlyData(_expenseEntries);
+
     final firstDayOfMonth = DateTime(monthlyDate.year, monthlyDate.month, 1);
-    final daysDifference = weeklyStart.difference(firstDayOfMonth).inDays;
-    final weekNumber = daysDifference < 0 ? 1 : (daysDifference ~/ 7) + 1;
+    final weekNumber = getWeekInMonth(weeklyStart, firstDayOfMonth);
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFD700),
@@ -394,8 +407,8 @@ class _ReportPageState extends State<ReportPage> {
                         chartData: monthlyIncomeData,
                         header: buildChartHeader(
                           DateFormat.yMMM().format(monthlyDate),
-                              () => setState(() => currentMonthOffset--),
-                              () => setState(() => currentMonthOffset++),
+                              () => updateMonth(currentMonthOffset - 1),
+                              () => updateMonth(currentMonthOffset + 1),
                         ),
                       ),
                       SizedBox(height: 24),
@@ -420,7 +433,7 @@ class _ReportPageState extends State<ReportPage> {
                             }
                           },
                               () {
-                            if (weekNumber < 4) {
+                            if (weekNumber < 5) {
                               setState(() => currentWeekOffset++);
                             }
                           },
@@ -442,8 +455,8 @@ class _ReportPageState extends State<ReportPage> {
                         chartData: monthlyExpenseData,
                         header: buildChartHeader(
                           DateFormat.yMMM().format(monthlyDate),
-                              () => setState(() => currentMonthOffset--),
-                              () => setState(() => currentMonthOffset++),
+                              () => updateMonth(currentMonthOffset - 1),
+                              () => updateMonth(currentMonthOffset + 1),
                           color: Colors.red[800]!,
                         ),
                         topCategories: getTopCategories(_expenseEntries, true),
@@ -470,7 +483,7 @@ class _ReportPageState extends State<ReportPage> {
                             }
                           },
                               () {
-                            if (weekNumber < 4) {
+                            if (weekNumber < 5) {
                               setState(() => currentWeekOffset++);
                             }
                           },
