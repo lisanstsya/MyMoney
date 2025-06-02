@@ -3,56 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await AwesomeNotifications().initialize(
-    'resource://drawable/app_icon',
-    [
-      NotificationChannel(
-        channelKey: 'target_channel',
-        channelName: 'Target Notifications',
-        channelDescription: 'Notifications for income and expense targets',
-        defaultColor: const Color(0xFF058240),
-        ledColor: Colors.white,
-        importance: NotificationImportance.High,
-        defaultPrivacy: NotificationPrivacy.Private,
-      ),
-      NotificationChannel(
-        channelKey: 'reminder_channel',
-        channelName: 'Reminder Notifications',
-        channelDescription: 'Daily reminders for income and expense targets',
-        defaultColor: const Color(0xFF058240),
-        ledColor: Colors.white,
-        importance: NotificationImportance.High,
-        defaultPrivacy: NotificationPrivacy.Private,
-      ),
-    ],
-  );
-  await AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
-    if (!isAllowed) {
-      AwesomeNotifications().requestPermissionToSendNotifications();
-    }
-  });
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: const TargetPage(),
-      routes: {
-        '/homemain': (context) => const Placeholder(),
-        '/report': (context) => const Placeholder(),
-        '/articles': (context) => const Placeholder(),
-      },
-    );
-  }
-}
-
 class TargetPage extends StatefulWidget {
   const TargetPage({super.key});
 
@@ -64,18 +14,23 @@ class _TargetPageState extends State<TargetPage> {
   late String userId;
   final incomeController = TextEditingController();
   final expenseController = TextEditingController();
+
   String? selectedIncomePeriod;
   String? selectedExpensePeriod;
+
   DateTime? selectedDayIncome;
   DateTimeRange? selectedWeekIncome;
   String? selectedMonthIncome;
   String? selectedYearIncome;
+
   DateTime? selectedDayExpense;
   DateTimeRange? selectedWeekExpense;
   String? selectedMonthExpense;
   String? selectedYearExpense;
+
   final Color redColor = const Color(0xFFED4353);
   final Color greenColor = const Color(0xFF058240);
+
   final List<String> periods = ["A day", "A week", "A month", "A year"];
   List<String> years = [];
   final currencyFormatter =
@@ -86,25 +41,15 @@ class _TargetPageState extends State<TargetPage> {
   String? savedExpenseNominal;
   String? savedExpenseInfo;
 
-  Future<void> checkIncomeTarget(double currentIncome, double targetIncome) async {
-    if (currentIncome >= targetIncome) {
-      await AwesomeNotifications().createNotification(
-        content: NotificationContent(
-          id: 100,
-          channelKey: 'target_channel',
-          title: 'Pemasukan Tercapai!',
-          body:
-          'Selamat! Target pemasukan sebesar $savedIncomeNominal telah tercapai.',
-          notificationLayout: NotificationLayout.Default,
-          color: greenColor,
-        ),
-      );
-    }
+  List<String> getYears() {
+    int currentYear = DateTime.now().year;
+    return List.generate(5, (index) => (currentYear + index).toString());
   }
 
   Future<void> checkExpenseWarning(
       double currentExpense, double targetExpense) async {
     double percentage = (currentExpense / targetExpense) * 100;
+
     if (percentage >= 90 && percentage < 100) {
       await AwesomeNotifications().createNotification(
         content: NotificationContent(
@@ -132,9 +77,33 @@ class _TargetPageState extends State<TargetPage> {
     }
   }
 
-  List<String> getYears() {
-    int currentYear = DateTime.now().year;
-    return List.generate(5, (index) => (currentYear + index).toString());
+  void scheduleDailyReminder(int hour, int minute, String message) async {
+    final id = hour * 100 + minute;
+
+    // Hapus notifikasi lama dengan ID yang sama
+    await AwesomeNotifications().cancel(id);
+
+    // Jadwalkan ulang
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: id,
+        channelKey: 'reminder_channel',
+        title: 'MyMoney Reminder',
+        body: message,
+        notificationLayout: NotificationLayout.Default,
+        color: greenColor,
+      ),
+      schedule: NotificationCalendar(
+        hour: hour,
+        minute: minute,
+        second: 0,
+        millisecond: 0,
+        repeats: true,
+        timeZone: await AwesomeNotifications().getLocalTimeZoneIdentifier(),
+      ),
+    );
+
+    print("Scheduled daily reminder at $hour:$minute");
   }
 
   @override
@@ -142,6 +111,12 @@ class _TargetPageState extends State<TargetPage> {
     super.initState();
     years = getYears();
     _loadUserIdAndSavedTargets();
+
+    // 🔔 Jadwal notifikasi reminder harian
+    scheduleDailyReminder(9, 0, 'Waktunya cek keuangan kamu di MyMoney 📊');
+    scheduleDailyReminder(15, 0,
+        'Jangan lupa catat pemasukan/pengeluaran hari ini!');
+
     AwesomeNotifications().setListeners(
       onActionReceivedMethod: _onNotificationAction,
     );
@@ -152,15 +127,12 @@ class _TargetPageState extends State<TargetPage> {
     setState(() {
       userId = prefs.getString('userId') ?? 'default_user_id';
     });
+
     setState(() {
-      savedIncomeNominal =
-          prefs.getString('income_target_nominal_$userId');
-      savedIncomeInfo =
-          prefs.getString('income_target_info_$userId');
-      savedExpenseNominal =
-          prefs.getString('expense_target_nominal_$userId');
-      savedExpenseInfo =
-          prefs.getString('expense_target_info_$userId');
+      savedIncomeNominal = prefs.getString('income_target_nominal_$userId');
+      savedIncomeInfo = prefs.getString('income_target_info_$userId');
+      savedExpenseNominal = prefs.getString('expense_target_nominal_$userId');
+      savedExpenseInfo = prefs.getString('expense_target_info_$userId');
     });
   }
 
@@ -267,6 +239,7 @@ class _TargetPageState extends State<TargetPage> {
     await _cancelNotifications(type: type);
     int morningId = type == "income" ? 1 : 3;
     int afternoonId = type == "income" ? 2 : 4;
+
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: morningId,
@@ -284,6 +257,7 @@ class _TargetPageState extends State<TargetPage> {
         repeats: true,
       ),
     );
+
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: afternoonId,
@@ -412,31 +386,14 @@ class _TargetPageState extends State<TargetPage> {
                           _showError("Please fill income amount and period.");
                           return;
                         }
+
                         final amount = double.tryParse(incomeController.text
                             .replaceAll(RegExp(r'[^\d.]'), ''));
                         if (amount == null || amount <= 0) {
                           _showError("Please enter a valid positive number.");
                           return;
                         }
-                        if (selectedIncomePeriod == "A day" &&
-                            selectedDayIncome == null) {
-                          _showError("Please pick a date for 'A day'");
-                          return;
-                        } else if (selectedIncomePeriod == "A week" &&
-                            selectedWeekIncome == null) {
-                          _showError("Please pick a week range for 'A week'");
-                          return;
-                        } else if (selectedIncomePeriod == "A month" &&
-                            (selectedMonthIncome == null ||
-                                selectedYearIncome == null)) {
-                          _showError(
-                              "Please select both month and year for 'A month'");
-                          return;
-                        } else if (selectedIncomePeriod == "A year" &&
-                            selectedYearIncome == null) {
-                          _showError("Please select a year for 'A year'");
-                          return;
-                        }
+
                         final info = _getFormattedPeriod(
                           selectedIncomePeriod!,
                           selectedDayIncome,
@@ -444,32 +401,33 @@ class _TargetPageState extends State<TargetPage> {
                           selectedMonthIncome,
                           selectedYearIncome,
                         );
+
                         final prefs = await SharedPreferences.getInstance();
                         setState(() {
                           savedIncomeNominal =
                               currencyFormatter.format(amount);
                           savedIncomeInfo = info;
                         });
+
                         await prefs.setString(
                             'income_target_nominal_$userId',
                             savedIncomeNominal!);
                         await prefs.setString(
                             'income_target_info_$userId', info);
+
                         _showNotification(
                           title: "Income Target Saved!",
                           body:
                           "Your income target of $savedIncomeNominal for $info has been set.",
                           notificationId: 0,
                         );
+
                         _scheduleNotifications(
                           title: "Income Target Reminder",
                           body:
                           "Remember your income target of $savedIncomeNominal for $info",
                           type: "income",
                         );
-
-                        // Dummy data untuk simulasi cek target
-                        checkIncomeTarget(10000000, amount);
                       },
                       saveColor: greenColor,
                     ),
@@ -523,31 +481,14 @@ class _TargetPageState extends State<TargetPage> {
                           _showError("Please fill expense amount and period.");
                           return;
                         }
+
                         final amount = double.tryParse(expenseController.text
                             .replaceAll(RegExp(r'[^\d.]'), ''));
                         if (amount == null || amount <= 0) {
                           _showError("Please enter a valid positive number.");
                           return;
                         }
-                        if (selectedExpensePeriod == "A day" &&
-                            selectedDayExpense == null) {
-                          _showError("Please pick a date for 'A day'");
-                          return;
-                        } else if (selectedExpensePeriod == "A week" &&
-                            selectedWeekExpense == null) {
-                          _showError("Please pick a week range for 'A week'");
-                          return;
-                        } else if (selectedExpensePeriod == "A month" &&
-                            (selectedMonthExpense == null ||
-                                selectedYearExpense == null)) {
-                          _showError(
-                              "Please select both month and year for 'A month'");
-                          return;
-                        } else if (selectedExpensePeriod == "A year" &&
-                            selectedYearExpense == null) {
-                          _showError("Please select a year for 'A year'");
-                          return;
-                        }
+
                         final info = _getFormattedPeriod(
                           selectedExpensePeriod!,
                           selectedDayExpense,
@@ -555,23 +496,27 @@ class _TargetPageState extends State<TargetPage> {
                           selectedMonthExpense,
                           selectedYearExpense,
                         );
+
                         final prefs = await SharedPreferences.getInstance();
                         setState(() {
                           savedExpenseNominal =
                               currencyFormatter.format(amount);
                           savedExpenseInfo = info;
                         });
+
                         await prefs.setString(
                             'expense_target_nominal_$userId',
                             savedExpenseNominal!);
                         await prefs.setString(
                             'expense_target_info_$userId', info);
+
                         _showNotification(
                           title: "Expense Target Saved!",
                           body:
                           "Your expense target of $savedExpenseNominal for $info has been set.",
                           notificationId: 3,
                         );
+
                         _scheduleNotifications(
                           title: "Expense Target Reminder",
                           body:
@@ -579,8 +524,11 @@ class _TargetPageState extends State<TargetPage> {
                           type: "expense",
                         );
 
-                        // Dummy data untuk simulasi cek pengeluaran
-                        checkExpenseWarning(9000000, amount);
+                        // Simulasi pengeluaran yang baru dimasukkan
+                        double expenseToday = 28000; // Misal: Rp28.000
+                        double target = amount; // Target pengeluaran harian/bulanan
+
+                        checkExpenseWarning(expenseToday, target);
                       },
                       saveColor: redColor,
                     ),
@@ -667,8 +615,6 @@ class _TargetPageState extends State<TargetPage> {
                 padding: EdgeInsets.only(left: 16, right: 4),
                 child: Text("Rp"),
               ),
-              prefixIconConstraints:
-              const BoxConstraints(minWidth: 0, minHeight: 0),
               hintText: "Enter ${title.toLowerCase()}",
               border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(30)),
@@ -813,7 +759,8 @@ class _TargetPageState extends State<TargetPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: color.withOpacity(0.2),
               borderRadius: BorderRadius.circular(8),
