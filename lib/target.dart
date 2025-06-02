@@ -38,6 +38,7 @@ void main() async {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -54,58 +55,93 @@ class MyApp extends StatelessWidget {
 
 class TargetPage extends StatefulWidget {
   const TargetPage({super.key});
+
   @override
   State<TargetPage> createState() => _TargetPageState();
 }
 
 class _TargetPageState extends State<TargetPage> {
   late String userId;
-
   final incomeController = TextEditingController();
   final expenseController = TextEditingController();
-
   String? selectedIncomePeriod;
   String? selectedExpensePeriod;
-
   DateTime? selectedDayIncome;
   DateTimeRange? selectedWeekIncome;
   String? selectedMonthIncome;
   String? selectedYearIncome;
-
   DateTime? selectedDayExpense;
   DateTimeRange? selectedWeekExpense;
   String? selectedMonthExpense;
   String? selectedYearExpense;
-
   final Color redColor = const Color(0xFFED4353);
   final Color greenColor = const Color(0xFF058240);
-
   final List<String> periods = ["A day", "A week", "A month", "A year"];
-
   List<String> years = [];
-
-  List<String> getYears() {
-    int currentYear = DateTime.now().year;
-    return List.generate(5, (index) => (currentYear + index).toString());
-  }
-
-  final List<String> months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
+  final currencyFormatter =
+  NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
 
   String? savedIncomeNominal;
   String? savedIncomeInfo;
   String? savedExpenseNominal;
   String? savedExpenseInfo;
 
-  final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
+  Future<void> checkIncomeTarget(double currentIncome, double targetIncome) async {
+    if (currentIncome >= targetIncome) {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: 100,
+          channelKey: 'target_channel',
+          title: 'Pemasukan Tercapai!',
+          body:
+          'Selamat! Target pemasukan sebesar $savedIncomeNominal telah tercapai.',
+          notificationLayout: NotificationLayout.Default,
+          color: greenColor,
+        ),
+      );
+    }
+  }
+
+  Future<void> checkExpenseWarning(
+      double currentExpense, double targetExpense) async {
+    double percentage = (currentExpense / targetExpense) * 100;
+    if (percentage >= 90 && percentage < 100) {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: 101,
+          channelKey: 'target_channel',
+          title: 'Peringatan Pengeluaran!',
+          body:
+          'Pengeluaran kamu sudah mencapai ${percentage.toStringAsFixed(1)}%. Hati-hati ya!',
+          notificationLayout: NotificationLayout.Default,
+          color: redColor,
+        ),
+      );
+    } else if (percentage >= 100) {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: 102,
+          channelKey: 'target_channel',
+          title: 'Pengeluaran Melebihi Target!',
+          body:
+          'Pengeluaran kamu telah melebihi target. Coba kurangi pengeluaran berikutnya.',
+          notificationLayout: NotificationLayout.Default,
+          color: redColor,
+        ),
+      );
+    }
+  }
+
+  List<String> getYears() {
+    int currentYear = DateTime.now().year;
+    return List.generate(5, (index) => (currentYear + index).toString());
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadUserIdAndSavedTargets();
     years = getYears();
+    _loadUserIdAndSavedTargets();
     AwesomeNotifications().setListeners(
       onActionReceivedMethod: _onNotificationAction,
     );
@@ -116,16 +152,20 @@ class _TargetPageState extends State<TargetPage> {
     setState(() {
       userId = prefs.getString('userId') ?? 'default_user_id';
     });
-
     setState(() {
-      savedIncomeNominal = prefs.getString('income_target_nominal_$userId');
-      savedIncomeInfo = prefs.getString('income_target_info_$userId');
-      savedExpenseNominal = prefs.getString('expense_target_nominal_$userId');
-      savedExpenseInfo = prefs.getString('expense_target_info_$userId');
+      savedIncomeNominal =
+          prefs.getString('income_target_nominal_$userId');
+      savedIncomeInfo =
+          prefs.getString('income_target_info_$userId');
+      savedExpenseNominal =
+          prefs.getString('expense_target_nominal_$userId');
+      savedExpenseInfo =
+          prefs.getString('expense_target_info_$userId');
     });
   }
 
-  static Future<void> _onNotificationAction(ReceivedAction receivedAction) async {}
+  static Future<void> _onNotificationAction(
+      ReceivedAction receivedAction) async {}
 
   void _navigateToPage(int index) {
     if (index == 3) return;
@@ -145,20 +185,16 @@ class _TargetPageState extends State<TargetPage> {
     }
   }
 
-  String _getFormattedPeriod(
-      String period,
-      DateTime? day,
-      DateTimeRange? week,
-      String? month,
-      String? year) {
+  String _getFormattedPeriod(String period, DateTime? day,
+      DateTimeRange? week, String? month, String? year) {
     if (period.contains("day") && day != null) {
-      return "Day: ${DateFormat.yMMMd().format(day)}";
+      return "Hari: ${DateFormat.yMMMd().format(day)}";
     } else if (period.contains("week") && week != null) {
-      return "Week: ${DateFormat.MMMd().format(week.start)} - ${DateFormat.MMMd().format(week.end)}";
+      return "Minggu: ${DateFormat.MMMd().format(week.start)} - ${DateFormat.MMMd().format(week.end)}";
     } else if (period.contains("month") && month != null && year != null) {
-      return "Month: $month $year";
+      return "Bulan: $month $year";
     } else if (period.contains("year") && year != null) {
-      return "Year: $year";
+      return "Tahun: $year";
     }
     return period;
   }
@@ -229,10 +265,8 @@ class _TargetPageState extends State<TargetPage> {
     required String type,
   }) async {
     await _cancelNotifications(type: type);
-
     int morningId = type == "income" ? 1 : 3;
     int afternoonId = type == "income" ? 2 : 4;
-
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: morningId,
@@ -250,7 +284,6 @@ class _TargetPageState extends State<TargetPage> {
         repeats: true,
       ),
     );
-
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
         id: afternoonId,
@@ -311,7 +344,8 @@ class _TargetPageState extends State<TargetPage> {
                     right: 0,
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 28),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 28),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: const BorderRadius.only(
@@ -378,15 +412,12 @@ class _TargetPageState extends State<TargetPage> {
                           _showError("Please fill income amount and period.");
                           return;
                         }
-
                         final amount = double.tryParse(incomeController.text
                             .replaceAll(RegExp(r'[^\d.]'), ''));
-
                         if (amount == null || amount <= 0) {
                           _showError("Please enter a valid positive number.");
                           return;
                         }
-
                         if (selectedIncomePeriod == "A day" &&
                             selectedDayIncome == null) {
                           _showError("Please pick a date for 'A day'");
@@ -406,7 +437,6 @@ class _TargetPageState extends State<TargetPage> {
                           _showError("Please select a year for 'A year'");
                           return;
                         }
-
                         final info = _getFormattedPeriod(
                           selectedIncomePeriod!,
                           selectedDayIncome,
@@ -414,49 +444,42 @@ class _TargetPageState extends State<TargetPage> {
                           selectedMonthIncome,
                           selectedYearIncome,
                         );
-
-                        final prefs =
-                        await SharedPreferences.getInstance();
-
+                        final prefs = await SharedPreferences.getInstance();
                         setState(() {
                           savedIncomeNominal =
                               currencyFormatter.format(amount);
                           savedIncomeInfo = info;
                         });
-
                         await prefs.setString(
                             'income_target_nominal_$userId',
                             savedIncomeNominal!);
                         await prefs.setString(
                             'income_target_info_$userId', info);
-
                         _showNotification(
                           title: "Income Target Saved!",
                           body:
                           "Your income target of $savedIncomeNominal for $info has been set.",
                           notificationId: 0,
                         );
-
                         _scheduleNotifications(
                           title: "Income Target Reminder",
                           body:
                           "Remember your income target of $savedIncomeNominal for $info",
                           type: "income",
                         );
+
+                        // Dummy data untuk simulasi cek target
+                        checkIncomeTarget(10000000, amount);
                       },
                       saveColor: greenColor,
                     ),
                     if (savedIncomeNominal != null)
                       _buildSavedTarget(savedIncomeNominal!, savedIncomeInfo!,
                           greenColor, () async {
-                            final prefs =
-                            await SharedPreferences.getInstance();
-
+                            final prefs = await SharedPreferences.getInstance();
                             await prefs.remove('income_target_nominal_$userId');
                             await prefs.remove('income_target_info_$userId');
-
                             await _cancelNotifications(type: "income");
-
                             setState(() {
                               savedIncomeNominal = null;
                               savedIncomeInfo = null;
@@ -500,15 +523,12 @@ class _TargetPageState extends State<TargetPage> {
                           _showError("Please fill expense amount and period.");
                           return;
                         }
-
                         final amount = double.tryParse(expenseController.text
                             .replaceAll(RegExp(r'[^\d.]'), ''));
-
                         if (amount == null || amount <= 0) {
                           _showError("Please enter a valid positive number.");
                           return;
                         }
-
                         if (selectedExpensePeriod == "A day" &&
                             selectedDayExpense == null) {
                           _showError("Please pick a date for 'A day'");
@@ -528,7 +548,6 @@ class _TargetPageState extends State<TargetPage> {
                           _showError("Please select a year for 'A year'");
                           return;
                         }
-
                         final info = _getFormattedPeriod(
                           selectedExpensePeriod!,
                           selectedDayExpense,
@@ -536,49 +555,42 @@ class _TargetPageState extends State<TargetPage> {
                           selectedMonthExpense,
                           selectedYearExpense,
                         );
-
-                        final prefs =
-                        await SharedPreferences.getInstance();
-
+                        final prefs = await SharedPreferences.getInstance();
                         setState(() {
                           savedExpenseNominal =
                               currencyFormatter.format(amount);
                           savedExpenseInfo = info;
                         });
-
                         await prefs.setString(
                             'expense_target_nominal_$userId',
                             savedExpenseNominal!);
                         await prefs.setString(
                             'expense_target_info_$userId', info);
-
                         _showNotification(
                           title: "Expense Target Saved!",
                           body:
                           "Your expense target of $savedExpenseNominal for $info has been set.",
                           notificationId: 3,
                         );
-
                         _scheduleNotifications(
                           title: "Expense Target Reminder",
                           body:
                           "Remember your expense target of $savedExpenseNominal for $info",
                           type: "expense",
                         );
+
+                        // Dummy data untuk simulasi cek pengeluaran
+                        checkExpenseWarning(9000000, amount);
                       },
                       saveColor: redColor,
                     ),
                     if (savedExpenseNominal != null)
                       _buildSavedTarget(savedExpenseNominal!,
                           savedExpenseInfo!, redColor, () async {
-                            final prefs =
-                            await SharedPreferences.getInstance();
-
+                            final prefs = await SharedPreferences.getInstance();
                             await prefs.remove('expense_target_nominal_$userId');
                             await prefs.remove('expense_target_info_$userId');
-
                             await _cancelNotifications(type: "expense");
-
                             setState(() {
                               savedExpenseNominal = null;
                               savedExpenseInfo = null;
@@ -726,9 +738,23 @@ class _TargetPageState extends State<TargetPage> {
                   hint: const Text("Month"),
                   value: selectedMonth,
                   onChanged: onMonthChanged,
-                  items: months
-                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                      .toList(),
+                  items: [
+                    for (var m in [
+                      "January",
+                      "February",
+                      "March",
+                      "April",
+                      "May",
+                      "June",
+                      "July",
+                      "August",
+                      "September",
+                      "October",
+                      "November",
+                      "December"
+                    ])
+                      DropdownMenuItem(value: m, child: Text(m))
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
