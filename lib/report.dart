@@ -63,8 +63,8 @@ class ReportPage extends StatefulWidget {
 class _ReportPageState extends State<ReportPage> {
   List<IncomeEntry> _incomeEntries = [];
   List<ExpenseEntry> _expenseEntries = [];
-  int currentWeekOffset = 0;
   int currentMonthOffset = 0;
+  int currentWeekInMonth = 1; // Week 1-5 dalam bulan yang dipilih
   final DateTime customStart = DateTime(2025, 1, 1);
   bool _isLoading = true;
   String? userId;
@@ -122,40 +122,88 @@ class _ReportPageState extends State<ReportPage> {
 
   void _initOffsets() {
     final now = DateTime.now();
-    final daysSinceStart = now.difference(customStart).inDays;
-    currentWeekOffset = daysSinceStart ~/ 7;
     currentMonthOffset = now.month - customStart.month + (12 * (now.year - customStart.year));
+    // Set week ke minggu pertama sebagai default
+    currentWeekInMonth = 1;
   }
 
   void updateMonth(int newMonthOffset) {
     setState(() {
       currentMonthOffset = newMonthOffset;
-      currentWeekOffset = 0;
+      currentWeekInMonth = 1; // Reset ke minggu 1 saat ganti bulan
     });
   }
 
-  DateTime getCustomWeekStart(int offset) => customStart.add(Duration(days: offset * 7));
-  DateTime getCustomWeekEnd(int offset) => getCustomWeekStart(offset).add(const Duration(days: 6));
+  void updateWeek(int newWeekInMonth) {
+    setState(() {
+      currentWeekInMonth = newWeekInMonth;
+    });
+  }
 
-  List<double> getWeeklyData(List entries) {
-    final start = getCustomWeekStart(currentWeekOffset);
-    final end = getCustomWeekEnd(currentWeekOffset);
-    final now = DateTime.now();
+  // Mendapatkan tanggal awal minggu berdasarkan bulan dan minggu yang dipilih
+  DateTime getWeekStartInMonth(int monthOffset, int weekInMonth) {
+    final targetMonth = DateTime(customStart.year, customStart.month + monthOffset, 1);
 
-    if (start.isAfter(now)) {
-      return List.filled(7, 0);
+    // Hitung hari pertama di minggu yang diminta
+    int startDay = ((weekInMonth - 1) * 7) + 1;
+
+    // Pastikan tidak melebihi hari terakhir dalam bulan
+    final daysInMonth = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+    if (startDay > daysInMonth) {
+      startDay = daysInMonth;
     }
 
-    List<double> data = List.filled(7, 0);
+    return DateTime(targetMonth.year, targetMonth.month, startDay);
+  }
+
+  // Mendapatkan tanggal akhir minggu berdasarkan bulan dan minggu yang dipilih
+  DateTime getWeekEndInMonth(int monthOffset, int weekInMonth) {
+    final weekStart = getWeekStartInMonth(monthOffset, weekInMonth);
+    final targetMonth = DateTime(customStart.year, customStart.month + monthOffset, 1);
+    final daysInMonth = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+
+    // Hitung hari terakhir di minggu tersebut
+    int endDay = weekStart.day + 6;
+
+    // Pastikan tidak melebihi hari terakhir dalam bulan
+    if (endDay > daysInMonth) {
+      endDay = daysInMonth;
+    }
+
+    return DateTime(targetMonth.year, targetMonth.month, endDay);
+  }
+
+  // Mendapatkan jumlah minggu maksimal dalam bulan tertentu
+  int getMaxWeeksInMonth(int monthOffset) {
+    final targetMonth = DateTime(customStart.year, customStart.month + monthOffset, 1);
+    final daysInMonth = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+    return ((daysInMonth - 1) ~/ 7) + 1;
+  }
+
+  List<double> getWeeklyData(List entries) {
+    final start = getWeekStartInMonth(currentMonthOffset, currentWeekInMonth);
+    final end = getWeekEndInMonth(currentMonthOffset, currentWeekInMonth);
+    final now = DateTime.now();
+
+    // Jangan tampilkan data dari masa depan
+    if (start.isAfter(now)) {
+      return List.generate(7, (index) => 0.0);
+    }
+
+    // Hitung jumlah hari aktual dalam minggu ini
+    final actualDays = end.difference(start).inDays + 1;
+    List<double> data = List.generate(7, (index) => 0.0);
+
     for (var entry in entries) {
       final date = entry.date;
       if (!date.isBefore(start) && !date.isAfter(end)) {
         int index = date.difference(start).inDays;
-        if (index >= 0 && index < 7) {
+        if (index >= 0 && index < 7 && index < actualDays) {
           data[index] += entry.amount;
         }
       }
     }
+
     return data;
   }
 
@@ -176,10 +224,10 @@ class _ReportPageState extends State<ReportPage> {
   Map<String, double> getTopCategories(List<ExpenseEntry> entries, bool isMonthly) {
     final baseDate = isMonthly
         ? DateTime(customStart.year, customStart.month + currentMonthOffset)
-        : getCustomWeekStart(currentWeekOffset);
+        : getWeekStartInMonth(currentMonthOffset, currentWeekInMonth);
     final endDate = isMonthly
         ? DateTime(baseDate.year, baseDate.month + 1, 0)
-        : getCustomWeekEnd(currentWeekOffset);
+        : getWeekEndInMonth(currentMonthOffset, currentWeekInMonth);
     final filtered = entries.where((e) => !e.date.isBefore(baseDate) && !e.date.isAfter(endDate));
     final Map<String, double> totals = {};
     for (var e in filtered) {
@@ -292,12 +340,6 @@ class _ReportPageState extends State<ReportPage> {
     );
   }
 
-  int getWeekInMonth(DateTime date, DateTime firstDayOfMonth) {
-    int dayOffset = (firstDayOfMonth.weekday - 1) % 7;
-    int adjustedDay = date.day + dayOffset;
-    return ((adjustedDay - 1) ~/ 7) + 1;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -314,8 +356,8 @@ class _ReportPageState extends State<ReportPage> {
     final endOfMonth = DateTime(monthlyDate.year, monthlyDate.month + 1, 0);
     final displayMonthlyDate = endOfMonth.isBefore(now) ? df.format(endOfMonth) : df.format(now);
 
-    final weeklyStart = getCustomWeekStart(currentWeekOffset);
-    final weeklyEnd = getCustomWeekEnd(currentWeekOffset);
+    final weeklyStart = getWeekStartInMonth(currentMonthOffset, currentWeekInMonth);
+    final weeklyEnd = getWeekEndInMonth(currentMonthOffset, currentWeekInMonth);
     final displayWeeklyDate = weeklyEnd.isBefore(now) ? df.format(weeklyEnd) : df.format(now);
 
     final weeklyIncomeData = getWeeklyData(_incomeEntries);
@@ -323,8 +365,7 @@ class _ReportPageState extends State<ReportPage> {
     final weeklyExpenseData = getWeeklyData(_expenseEntries);
     final monthlyExpenseData = getMonthlyData(_expenseEntries);
 
-    final firstDayOfMonth = DateTime(monthlyDate.year, monthlyDate.month, 1);
-    final weekNumber = getWeekInMonth(weeklyStart, firstDayOfMonth);
+    final maxWeeksInMonth = getMaxWeeksInMonth(currentMonthOffset);
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFD700),
@@ -426,15 +467,15 @@ class _ReportPageState extends State<ReportPage> {
                         total: getTotal(weeklyIncomeData),
                         chartData: weeklyIncomeData,
                         header: buildChartHeader(
-                          'Week $weekNumber',
+                          'Week $currentWeekInMonth of ${DateFormat.MMM().format(monthlyDate)}',
                               () {
-                            if (weekNumber > 1) {
-                              setState(() => currentWeekOffset--);
+                            if (currentWeekInMonth > 1) {
+                              updateWeek(currentWeekInMonth - 1);
                             }
                           },
                               () {
-                            if (weekNumber < 5) {
-                              setState(() => currentWeekOffset++);
+                            if (currentWeekInMonth < maxWeeksInMonth) {
+                              updateWeek(currentWeekInMonth + 1);
                             }
                           },
                         ),
@@ -476,15 +517,15 @@ class _ReportPageState extends State<ReportPage> {
                         total: getTotal(weeklyExpenseData),
                         chartData: weeklyExpenseData,
                         header: buildChartHeader(
-                          'Week $weekNumber',
+                          'Week $currentWeekInMonth of ${DateFormat.MMM().format(monthlyDate)}',
                               () {
-                            if (weekNumber > 1) {
-                              setState(() => currentWeekOffset--);
+                            if (currentWeekInMonth > 1) {
+                              updateWeek(currentWeekInMonth - 1);
                             }
                           },
                               () {
-                            if (weekNumber < 5) {
-                              setState(() => currentWeekOffset++);
+                            if (currentWeekInMonth < maxWeeksInMonth) {
+                              updateWeek(currentWeekInMonth + 1);
                             }
                           },
                           color: Colors.red[800]!,
