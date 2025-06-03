@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart'; // Untuk format mata uang
+import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:convert';
+import 'package:awesome_notifications/awesome_notifications.dart';
 
 List<Map<String, dynamic>> transactionHistory = [];
 
@@ -18,57 +19,115 @@ class _MyWalletPageState extends State<MyWalletPage> {
   final Color yellowColor = const Color(0xFFEFC319);
   final Color greenColor = const Color(0xFF058240);
   final Color redColor = const Color(0xFFED4353);
-
   List<Map<String, dynamic>> expenseList = [];
-  List<Map<String, dynamic>> incomeList = []; // Menyimpan data income untuk chart
-
+  List<Map<String, dynamic>> incomeList = [];
   final TextEditingController incomeAmountController = TextEditingController();
   final TextEditingController incomeCategoryController = TextEditingController();
   final TextEditingController incomeDescriptionController = TextEditingController();
-
   final TextEditingController expenseAmountController = TextEditingController();
   final TextEditingController expenseCategoryController = TextEditingController();
   final TextEditingController expenseDescriptionController = TextEditingController();
-
   bool showIncomeForm = false;
   bool showExpenseForm = false;
-
   double totalIncome = 0;
   double todayIncome = 0;
   double totalExpense = 0;
   double todayExpense = 0;
-
   String? userId;
+  late double expenseTarget;
+
+  Future<void> _initNotifications() async {
+    await AwesomeNotifications().initialize(
+      'resource://drawable/app_icon',
+      [
+        NotificationChannel(
+          channelKey: 'target_channel',
+          channelName: 'Target Notifications',
+          channelDescription: 'Notifications for budget tracking',
+          defaultColor: Colors.red,
+          importance: NotificationImportance.High,
+        ),
+        NotificationChannel(
+          channelKey: 'reminder_channel',
+          channelName: 'Daily Reminder',
+          channelDescription: 'Daily budget reminders',
+          defaultColor: Colors.orange,
+          importance: NotificationImportance.High,
+        ),
+      ],
+    );
+    if (!(await AwesomeNotifications().isNotificationAllowed())) {
+      await AwesomeNotifications().requestPermissionToSendNotifications();
+    }
+  }
+
+  void _scheduleDailyReminders() async {
+    final channelId = 'reminder_channel';
+    final hour = [9, 15]; // Jam 9 dan 15
+
+    for (int i = 0; i < hour.length; i++) {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: 100 + i,
+          channelKey: channelId,
+          title: 'Budget Reminder',
+          body: 'Check your daily expenses and stay within your target!',
+          category: NotificationCategory.Reminder,
+          color: Colors.orange,
+        ),
+        schedule: NotificationCalendar(
+          hour: hour[i],
+          minute: 0,
+          second: 0,
+          millisecond: 0,
+          repeats: true,
+        ),
+      );
+    }
+  }
+
+  void _cancelAllReminders() async {
+    final ids = [100, 101];
+    for (var id in ids) {
+      await AwesomeNotifications().cancel(id);
+    }
+  }
+
+  void _checkExpenseTarget(double target) async {
+    if (totalExpense >= target) {
+      _showNotification(
+        "⚠️ Expense Target Exceeded!",
+        "Your current expense has exceeded the target of Rp ${NumberFormat('#,##0').format(target)}",
+        1,
+      );
+    } else if (totalExpense >= 0.9 * target) {
+      _showNotification(
+        "🔔 You're Close to Your Limit!",
+        "You've spent over 90% of your target (Rp ${NumberFormat('#,##0').format(totalExpense)})",
+        2,
+      );
+    }
+  }
+
+  void _showNotification(String title, String body, int id) async {
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: id,
+        channelKey: 'target_channel',
+        title: title,
+        body: body,
+        notificationLayout: NotificationLayout.Default,
+        color: redColor,
+      ),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
+    _initNotifications();
     _loadUserIdAndData();
-  }
-
-  Widget _buildCategoryDetails(String category, List<Map<String, dynamic>> transactions) {
-    final categoryTransactions = transactions.where((t) => t['category'] == category).toList();
-
-    if (categoryTransactions.isEmpty) {
-      return SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('$category: ', style: TextStyle(fontWeight: FontWeight.bold)),
-          Wrap(
-            spacing: 6,
-            children: categoryTransactions.map((t) {
-              String amount = formatCurrency(t['amount']);
-              return Text('Rp $amount', style: TextStyle(fontSize: 12));
-            }).toList(),
-          ),
-        ],
-      ),
-    );
+    _scheduleDailyReminders(); // Schedule daily reminders
   }
 
   Future<void> _loadUserIdAndData() async {
@@ -83,9 +142,19 @@ class _MyWalletPageState extends State<MyWalletPage> {
     setState(() {
       userId = storedUserId;
     });
+
+    // Load saved expense target
+    final savedExpenseNominal = prefs.getString('expense_target_nominal_$userId');
+    if (savedExpenseNominal != null) {
+      final amountStr = savedExpenseNominal.replaceAll(RegExp(r'[^\d.]'), '');
+      expenseTarget = double.tryParse(amountStr) ?? 0.0;
+    } else {
+      expenseTarget = 0.0;
+    }
+
     await loadInitialData();
     await fetchExpensesByCategory();
-    await fetchIncomesByCategory(); // ← Load income data
+    await fetchIncomesByCategory();
   }
 
   Future<void> loadInitialData() async {
@@ -105,6 +174,8 @@ class _MyWalletPageState extends State<MyWalletPage> {
           totalExpense = (data['totalExpense'] ?? 0).toDouble();
           todayIncome = (data['todayIncome'] ?? 0).toDouble();
           todayExpense = (data['todayExpense'] ?? 0).toDouble();
+
+          _checkExpenseTarget(expenseTarget); // Check target
         });
       } else {
         _showSnackBar('Failed to load summary data', redColor);
@@ -112,6 +183,29 @@ class _MyWalletPageState extends State<MyWalletPage> {
     } catch (e) {
       _showSnackBar('Connection error: $e', redColor);
     }
+  }
+
+  Widget _buildCategoryDetails(String category, List<Map<String, dynamic>> transactions) {
+    final categoryTransactions = transactions.where((t) => t['category'] == category).toList();
+    if (categoryTransactions.isEmpty) {
+      return SizedBox.shrink();
+    }
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$category: ', style: TextStyle(fontWeight: FontWeight.bold)),
+          Wrap(
+            spacing: 6,
+            children: categoryTransactions.map((t) {
+              String amount = formatCurrency(t['amount']);
+              return Text('Rp $amount', style: TextStyle(fontSize: 12));
+            }).toList(),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> fetchExpensesByCategory() async {
@@ -183,7 +277,7 @@ class _MyWalletPageState extends State<MyWalletPage> {
   }
 
   void _navigateToPage(int index) {
-    if (index == 2) return; // Skip wallet page itself
+    if (index == 2) return;
     Navigator.pushReplacementNamed(
       context,
       index == 0
@@ -201,30 +295,16 @@ class _MyWalletPageState extends State<MyWalletPage> {
       _showSnackBar("User not logged in", redColor);
       return;
     }
-
-    // Validasi: Harus isi amount dan category
     if (incomeAmountController.text.isEmpty || incomeCategoryController.text.isEmpty) {
       _showSnackBar('Please enter both amount and category', redColor);
       return;
     }
-
     double? amount = double.tryParse(incomeAmountController.text);
     if (amount == null || amount <= 0) {
       _showSnackBar('Please enter a valid amount', redColor);
       return;
     }
-
     String category = incomeCategoryController.text;
-
-    setState(() {
-      transactionHistory.add({
-        'type': 'income',
-        'category': category,
-        'amount': amount,
-        'time': DateTime.now().toString(),
-      });
-    });
-
     submitIncome(amount: amount, category: category);
     clearIncomeForm();
     setState(() {
@@ -237,30 +317,16 @@ class _MyWalletPageState extends State<MyWalletPage> {
       _showSnackBar("User not logged in", redColor);
       return;
     }
-
-    // Validasi: Harus isi amount dan category
     if (expenseAmountController.text.isEmpty || expenseCategoryController.text.isEmpty) {
       _showSnackBar('Please enter both amount and category', redColor);
       return;
     }
-
     double? amount = double.tryParse(expenseAmountController.text);
     if (amount == null || amount <= 0) {
       _showSnackBar('Please enter a valid amount', redColor);
       return;
     }
-
     String category = expenseCategoryController.text;
-
-    setState(() {
-      transactionHistory.add({
-        'type': 'expense',
-        'category': category,
-        'amount': amount,
-        'time': DateTime.now().toString(),
-      });
-    });
-
     submitExpense(amount: amount, category: category);
     clearExpenseForm();
     setState(() {
@@ -279,7 +345,6 @@ class _MyWalletPageState extends State<MyWalletPage> {
           Color typeColor = item['type'] == 'income' ? greenColor : redColor;
           double amount = item['amount'];
           String formattedAmount = formatCurrency(amount);
-
           return Row(
             children: [
               Container(
@@ -294,7 +359,6 @@ class _MyWalletPageState extends State<MyWalletPage> {
         }),
       ],
     );
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: message,
@@ -651,12 +715,10 @@ class _MyWalletPageState extends State<MyWalletPage> {
         ),
       );
     }
-
     final Map<String, double> categoryTotals = {};
     final List<Color> colors = [Colors.purple, Colors.blue, Colors.green, Colors.orange, Colors.teal];
     String largestCategory = '';
     double largestAmount = 0;
-
     for (var expense in expenseList) {
       final category = expense['category'] ?? 'Unknown';
       final amount = (expense['amount'] ?? 0.0).toDouble();
@@ -666,7 +728,6 @@ class _MyWalletPageState extends State<MyWalletPage> {
         largestCategory = category;
       }
     }
-
     final List<PieChartSectionData> sections = categoryTotals.entries.map((entry) {
       final percentage = (entry.value / totalExpense) * 100;
       final index = categoryTotals.keys.toList().indexOf(entry.key);
@@ -682,13 +743,10 @@ class _MyWalletPageState extends State<MyWalletPage> {
       );
     }).toList();
 
-    // Fungsi lokal untuk build detail per kategori
     Widget _buildCategoryDetails(String category) {
       final List<Map<String, dynamic>> categoryTransactions =
       expenseList.where((item) => item['category'] == category).toList();
-
       if (categoryTransactions.isEmpty) return SizedBox.shrink();
-
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4.0),
         child: Row(
@@ -795,12 +853,10 @@ class _MyWalletPageState extends State<MyWalletPage> {
         ),
       );
     }
-
     final Map<String, double> categoryTotals = {};
     final List<Color> colors = [Colors.green, Colors.teal, Colors.blue, Colors.indigo];
     String largestCategory = '';
     double largestAmount = 0;
-
     for (var income in incomeList) {
       final category = income['category'] ?? 'Unknown';
       final amount = (income['amount'] ?? 0.0).toDouble();
@@ -810,7 +866,6 @@ class _MyWalletPageState extends State<MyWalletPage> {
         largestCategory = category;
       }
     }
-
     final List<PieChartSectionData> sections = categoryTotals.entries.map((entry) {
       final percentage = (entry.value / totalIncome) * 100;
       final index = categoryTotals.keys.toList().indexOf(entry.key);
@@ -826,13 +881,10 @@ class _MyWalletPageState extends State<MyWalletPage> {
       );
     }).toList();
 
-    // Fungsi lokal untuk build detail per kategori
     Widget _buildCategoryDetails(String category) {
       final List<Map<String, dynamic>> categoryTransactions =
       incomeList.where((item) => item['category'] == category).toList();
-
       if (categoryTransactions.isEmpty) return SizedBox.shrink();
-
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4.0),
         child: Row(
@@ -945,10 +997,18 @@ class _MyWalletPageState extends State<MyWalletPage> {
     );
   }
 
-
   String formatCurrency(double amount) {
     final formatter = NumberFormat('#,##0', 'id_ID');
     return formatter.format(amount);
+  }
+
+  @override
+  void dispose() {
+    AwesomeNotifications().setListeners(
+      onActionReceivedMethod: (_) async {}, // Tidak boleh null
+    );
+    _cancelAllReminders();
+    super.dispose();
   }
 
   @override
