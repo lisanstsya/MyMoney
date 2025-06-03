@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:suksesges/login_screen.dart';
 import 'homepagemain.dart';
 import 'auth_service.dart'; // Make sure the path is correct
 
@@ -283,7 +284,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       GestureDetector(
                         onTap: () {
-                          Navigator.pop(context); // Back to login
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const LoginScreen()));
                         },
                         child: const Text(
                           'Login',
